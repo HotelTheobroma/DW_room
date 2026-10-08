@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>·</title>
+<style>
+  :root { --void:#07040f; --water:#7fd6ff; --glow:#b48cff; --text:#e6dcff; --muted:#8f84a8; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body { background: radial-gradient(ellipse at 50% 35%, #1d1035 0%, var(--void) 70%) fixed; color: var(--text);
+         font-family: "Pretendard","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+         display: flex; flex-direction: column; align-items: center; gap: 14px; min-height: 100vh; padding: 18px 16px 32px; }
+  nav { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+  nav button { background: transparent; color: var(--muted); border: 1px solid #3a2a5c; border-radius: 999px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
+  nav button.on { color: var(--text); border-color: var(--glow); background: rgba(108,63,196,.25); box-shadow: 0 0 10px rgba(180,140,255,.3); }
+  canvas { width: min(640px, 100%); aspect-ratio: 1; display: block; border-radius: 6px; touch-action: none;
+           clip-path: polygon(2% 1%,40% 0,62% 2%,98% 0,100% 35%,98% 70%,100% 99%,60% 100%,30% 98%,0 100%,1% 60%,0 25%); }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: center; }
+  button.act { background: #1c1430; color: var(--text); border: 1px solid #4a3a72; border-radius: 8px; padding: 9px 14px; font-size: 14px; cursor: pointer; min-width: 44px; }
+  button.act:hover { border-color: var(--glow); box-shadow: 0 0 8px rgba(180,140,255,.35); }
+  button.save { background: linear-gradient(180deg,#5b3aa8,#3b2378); border-color: #8f6be0; color: #f1eaff; }
+  .pad { display: grid; grid-template-columns: repeat(3, 46px); gap: 4px; }
+  .pad button { padding: 8px 0; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<nav id="nav" style="display:none"></nav>
+<canvas id="cv" width="640" height="640"></canvas>
+<div class="row" id="ctrl"></div>
+<div class="row"><button class="act save" onclick="save()">이미지로 저장</button></div>
+
+<script>
+/* ─────────────────────────── 공통 ─────────────────────────── */
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const SZ = 640, DPR = Math.min(2, window.devicePixelRatio || 1);
+cv.width = SZ * DPR; cv.height = SZ * DPR; ctx.scale(DPR, DPR);
+const WATER = '#7fd6ff', GLOW = '#b48cff';
+
+// 배경(파편) 미리 그려 두기 — 고정 시드
+const bgCanvas = document.createElement('canvas'); bgCanvas.width = SZ; bgCanvas.height = SZ;
+(function () {
+  const g = bgCanvas.getContext('2d'); let s = 7; const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280;
+  const bg = g.createRadialGradient(SZ / 2, SZ * .4, 30, SZ / 2, SZ * .4, SZ * .8);
+  bg.addColorStop(0, '#1d1035'); bg.addColorStop(1, '#07040f'); g.fillStyle = bg; g.fillRect(0, 0, SZ, SZ);
+  for (let i = 0; i < 16; i++) {
+    g.save(); g.translate(rnd() * SZ, rnd() * SZ); g.rotate(rnd() * 6.28); const w = 10 + rnd() * 40;
+    g.fillStyle = 'rgba(43,29,72,.55)'; g.strokeStyle = 'rgba(58,42,92,.8)';
+    g.beginPath(); g.moveTo(0, 0); g.lineTo(w, w * .2); g.lineTo(w * .8, w); g.lineTo(0, w * .7); g.closePath(); g.fill(); g.stroke(); g.restore();
+  }
+  g.strokeStyle = 'rgba(61,44,99,.6)'; g.lineWidth = 1;
+  for (let i = 0; i < 6; i++) { g.beginPath(); const x = rnd() * SZ, y = rnd() * SZ; g.moveTo(x, y); g.lineTo(x + (rnd() - .5) * 120, y + (rnd() - .5) * 120); g.stroke(); }
+})();
+function drawBG() { ctx.drawImage(bgCanvas, 0, 0); }
+function rr(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+function stone(x, y, w, h, lit) {
+  rr(x, y, w, h, 8); const g = ctx.createLinearGradient(x, y, x + w, y + h);
+  g.addColorStop(0, '#3b3150'); g.addColorStop(.6, '#2a2238'); g.addColorStop(1, '#1d1729'); ctx.fillStyle = g; ctx.fill();
+  ctx.strokeStyle = lit ? WATER : '#4a3c66'; ctx.lineWidth = lit ? 2.5 : 1.2; ctx.stroke();
+}
+function pt(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width * SZ, y: (e.clientY - r.top) / r.height * SZ }; }
+const ease = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+
+/* ─────────────────────── ② 기우는 방 ─────────────────────── */
+const Tilt = (() => {
+  const GRID = ["##...X...", ".........", "..#.#....", "..#.#..#.", ".O#.##..#", "###...#..", ".....#X..", "......##.", "..###...."];
+  const N = 9, CELL = 48, G = [[1,0],[0,1],[-1,0],[0,-1]];
+  const START = [2, 5];
+  let ball, o, angle, anim = null, solved = false, sink = 0;
+  function reset() { const f = fallTarget(START[0], START[1], 0); ball = { r: f.r, c: f.c }; o = 0; angle = 0; anim = null; solved = false; sink = 0; }
+  function fallTarget(r, c, oo) {
+    const [dr, dc] = G[oo];
+    while (true) {
+      const nr = r + dr, nc = c + dc;
+      if (nr < 0 || nr >= N || nc < 0 || nc >= N || GRID[nr][nc] === '#') return { r, c, res: null };
+      r = nr; c = nc; if ('OX'.includes(GRID[r][c])) return { r, c, res: GRID[r][c] };
+    }
+  }
+  function turn(d) {
+    if (anim || solved) return;
+    const from = angle, to = angle + d * 90, o2 = (o + d + 4) % 4, tgt = fallTarget(ball.r, ball.c, o2);
+    anim = { phase: 'rot', t0: performance.now(), from, to, o2, tgt, sr: ball.r, sc: ball.c };
+  }
+  function step(now) {
+    if (!anim) return;
+    if (anim.phase === 'rot') {
+      const k = Math.min(1, (now - anim.t0) / 320); angle = anim.from + (anim.to - anim.from) * ease(k);
+      if (k >= 1) { angle = anim.to; o = anim.o2; anim.phase = 'fall'; anim.t0 = now; anim.dist = Math.abs(anim.tgt.r - anim.sr) + Math.abs(anim.tgt.c - anim.sc); }
+    } else if (anim.phase === 'fall') {
+      const dur = Math.max(1, anim.dist) * 70, k = Math.min(1, (now - anim.t0) / dur);
+      ball = { r: anim.sr + (anim.tgt.r - anim.sr) * k * k, c: anim.sc + (anim.tgt.c - anim.sc) * k * k };
+      if (k >= 1) {
+        ball = { r: anim.tgt.r, c: anim.tgt.c };
+        if (anim.tgt.res === 'O') { solved = true; anim = null; }
+        else if (anim.tgt.res === 'X') { anim.phase = 'sink'; anim.t0 = now; }
+        else anim = null;
+      }
+    } else if (anim.phase === 'sink') {
+      sink = Math.min(1, (now - anim.t0) / 700);
+      if (sink >= 1) { const keepAngle = angle; reset(); angle = keepAngle; anim = { phase: 'back', t0: now, from: keepAngle, to: 0 }; }
+    } else if (anim.phase === 'back') {
+      const k = Math.min(1, (now - anim.t0) / 500); angle = anim.from + (anim.to - anim.from) * ease(k);
+      if (k >= 1) { angle = 0; o = 0; anim = null; }
+    }
+  }
+  function draw(t) {
+    step(performance.now()); drawBG();
+    const W = N * CELL; ctx.save(); ctx.translate(320, 320); ctx.rotate(angle * Math.PI / 180); ctx.translate(-W / 2, -W / 2);
+    // 방 테두리
+    ctx.fillStyle = '#120b22'; ctx.strokeStyle = solved ? WATER : '#4a3a72'; ctx.lineWidth = 3; rr(-10, -10, W + 20, W + 20, 12); ctx.fill(); ctx.stroke();
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+      const x = c * CELL, y = r * CELL, ch = GRID[r][c];
+      if (ch === '#') stone(x + 2, y + 2, CELL - 4, CELL - 4, false);
+      else { ctx.fillStyle = 'rgba(30,20,52,.6)'; ctx.fillRect(x + 1, y + 1, CELL - 2, CELL - 2); }
+      if (ch === 'X') { ctx.beginPath(); ctx.arc(x + CELL / 2, y + CELL / 2, CELL * .36, 0, 7); ctx.fillStyle = '#000'; ctx.fill(); ctx.strokeStyle = '#6c3fc4'; ctx.lineWidth = 2; ctx.stroke(); }
+      if (ch === 'O') {
+        const pr = .3 + .05 * Math.sin(t / 300);
+        ctx.beginPath(); ctx.arc(x + CELL / 2, y + CELL / 2, CELL * pr, 0, 7); ctx.strokeStyle = WATER; ctx.lineWidth = 3; ctx.shadowColor = WATER; ctx.shadowBlur = 16; ctx.stroke(); ctx.shadowBlur = 0;
+        ctx.beginPath(); ctx.arc(x + CELL / 2, y + CELL / 2, CELL * .16, 0, 7); ctx.fillStyle = 'rgba(127,214,255,.35)'; ctx.fill();
+      }
+    }
+    // 구슬
+    if (!solved) {
+      const bx = ball.c * CELL + CELL / 2, by = ball.r * CELL + CELL / 2, rad = CELL * .3 * (1 - sink);
+      if (rad > 0.5) { const g = ctx.createRadialGradient(bx - 4, by - 4, 2, bx, by, rad); g.addColorStop(0, '#fff'); g.addColorStop(1, '#a98bff');
+        ctx.beginPath(); ctx.arc(bx, by, rad, 0, 7); ctx.fillStyle = g; ctx.shadowColor = GLOW; ctx.shadowBlur = 18; ctx.fill(); ctx.shadowBlur = 0; }
+    }
+    ctx.restore();
+    if (solved) { ctx.fillStyle = 'rgba(127,214,255,.08)'; ctx.fillRect(0, 0, SZ, SZ); }
+  }
+  reset();
+  const controls = () => [btn('↶', () => turn(-1)), btn('↷', () => turn(1))];
+  const key = k => { if (k === 'ArrowLeft' || k === 'q') turn(-1); if (k === 'ArrowRight' || k === 'e') turn(1); };
+  return { name: '기우는 방', file: 'tilt', draw, controls, key };
+})();
+
+/* ─────────────────────────── 틀 ─────────────────────────── */
+const PUZZLES = [Tilt];
+let cur = 0;
+function btn(label, fn) { const b = document.createElement('button'); b.className = 'act'; b.textContent = label; b.onclick = fn; return b; }
+function select(i) {
+  if (PUZZLES[cur].leave) PUZZLES[cur].leave();
+  cur = i;
+  document.querySelectorAll('nav button').forEach((b, k) => b.classList.toggle('on', k === i));
+  const ctrl = document.getElementById('ctrl'); ctrl.innerHTML = ''; PUZZLES[i].controls().forEach(el => ctrl.appendChild(el));
+}
+PUZZLES.forEach((p, i) => { const b = document.createElement('button'); b.textContent = p.name; b.onclick = () => select(i); document.getElementById('nav').appendChild(b); });
+cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); PUZZLES[cur].down && PUZZLES[cur].down(e); });
+cv.addEventListener('pointermove', e => PUZZLES[cur].move && PUZZLES[cur].move(e));
+cv.addEventListener('pointerup', e => PUZZLES[cur].up && PUZZLES[cur].up(e));
+document.addEventListener('keydown', e => { if (PUZZLES[cur].key && e.key.startsWith('Arrow')) e.preventDefault(); PUZZLES[cur].key && PUZZLES[cur].key(e.key); });
+function loop(t) { ctx.setTransform(DPR, 0, 0, DPR, 0, 0); PUZZLES[cur].draw(t); requestAnimationFrame(loop); }
+function save() {
+  cv.toBlob(blob => { const url = URL.createObjectURL(blob), a = document.createElement('a'); a.href = url; a.download = PUZZLES[cur].file + '.png';
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000); }, 'image/png');
+}
+select(0); requestAnimationFrame(loop);
+</script>
+</body>
+</html>
