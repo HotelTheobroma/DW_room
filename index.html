@@ -24,7 +24,6 @@
   .pad button { padding: 8px 0; }
   .hidden { display: none !important; }
 
-  /* ── 모바일 ── */
   html { -webkit-text-size-adjust: 100%; }
   body { min-height: 100dvh; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
   button, .tile, nav button { touch-action: manipulation; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
@@ -58,7 +57,6 @@
 
 <script>
 
-/* ── 모바일: 이미지 저장 ── */
 const COARSE = matchMedia('(pointer: coarse)').matches;
 function deliver(blob, name) {
   if (!COARSE) {
@@ -79,13 +77,11 @@ function deliver(blob, name) {
   });
   document.body.appendChild(box);
 }
-/* ─────────────────────────── 공통 ─────────────────────────── */
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
 const SZ = 640, DPR = Math.min(2, window.devicePixelRatio || 1);
 cv.width = SZ * DPR; cv.height = SZ * DPR; ctx.scale(DPR, DPR);
 const WATER = '#7fd6ff', GLOW = '#b48cff';
 
-// 배경(파편) 미리 그려 두기 — 고정 시드
 const bgCanvas = document.createElement('canvas'); bgCanvas.width = SZ; bgCanvas.height = SZ;
 (function () {
   const g = bgCanvas.getContext('2d'); let s = 7; const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280;
@@ -109,7 +105,6 @@ function stone(x, y, w, h, lit) {
 function pt(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width * SZ, y: (e.clientY - r.top) / r.height * SZ }; }
 const ease = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 
-/* ─────────────────────── ② 기우는 방 ─────────────────────── */
 const Tilt = (() => {
   const GRID = ["##...X...", ".........", "..#.#....", "..#.#..#.", ".O#.##..#", "###...#..", ".....#X..", "......##.", "..###...."];
   const N = 9, CELL = 48, G = [[1,0],[0,1],[-1,0],[0,-1]];
@@ -154,7 +149,6 @@ const Tilt = (() => {
   function draw(t) {
     step(performance.now()); drawBG();
     const W = N * CELL; ctx.save(); ctx.translate(320, 320); ctx.rotate(angle * Math.PI / 180); ctx.translate(-W / 2, -W / 2);
-    // 방 테두리
     ctx.fillStyle = '#120b22'; ctx.strokeStyle = solved ? WATER : '#4a3a72'; ctx.lineWidth = 3; rr(-10, -10, W + 20, W + 20, 12); ctx.fill(); ctx.stroke();
     for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
       const x = c * CELL, y = r * CELL, ch = GRID[r][c];
@@ -167,7 +161,6 @@ const Tilt = (() => {
         ctx.beginPath(); ctx.arc(x + CELL / 2, y + CELL / 2, CELL * .16, 0, 7); ctx.fillStyle = 'rgba(127,214,255,.35)'; ctx.fill();
       }
     }
-    // 구슬
     if (!solved) {
       const bx = ball.c * CELL + CELL / 2, by = ball.r * CELL + CELL / 2, rad = CELL * .3 * (1 - sink);
       if (rad > 0.5) { const g = ctx.createRadialGradient(bx - 4, by - 4, 2, bx, by, rad); g.addColorStop(0, '#fff'); g.addColorStop(1, '#a98bff');
@@ -182,7 +175,6 @@ const Tilt = (() => {
   return { name: '기우는 방', file: 'tilt', draw, controls, key };
 })();
 
-/* ─────────────────────────── 틀 ─────────────────────────── */
 const PUZZLES = [Tilt];
 let cur = 0;
 function btn(label, fn) { const b = document.createElement('button'); b.className = 'act'; b.textContent = label; b.onclick = fn; return b; }
@@ -198,7 +190,6 @@ cv.addEventListener('pointermove', e => PUZZLES[cur].move && PUZZLES[cur].move(e
 cv.addEventListener('pointerup', e => PUZZLES[cur].up && PUZZLES[cur].up(e));
 document.addEventListener('keydown', e => { if (PUZZLES[cur].key && e.key.startsWith('Arrow')) e.preventDefault(); PUZZLES[cur].key && PUZZLES[cur].key(e.key); });
 
-/* ── 모바일: 판 위를 밀어서 움직이기 ── */
 (function () {
   let sx = null, sy = null;
   cv.addEventListener('pointerdown', e => { sx = e.clientX; sy = e.clientY; });
